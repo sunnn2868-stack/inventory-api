@@ -19,6 +19,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.springframework.dao.DataAccessResourceFailureException;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
+
 class OrderCreatedEventListenerTest {
 
     private ObjectMapper objectMapper;
@@ -90,6 +95,31 @@ class OrderCreatedEventListenerTest {
         );
 
         assertFalse(output.contains("Order event received!"));
+    }
+
+    @Test
+    void propagatesDatabaseFailure() throws Exception {
+        OrderCreatedEvent event =
+                new OrderCreatedEvent(1002, 404, 5001, 2, "CREATED");
+
+        when(objectMapper.readValue(
+                anyString(),
+                eq(OrderCreatedEvent.class)
+        )).thenReturn(event);
+
+        when(jdbcTemplate.update(
+                anyString(),
+                any(Object[].class)
+        )).thenThrow(
+                new DataAccessResourceFailureException(
+                        "Simulated database connection failure"
+                )
+        );
+
+        assertThrows(
+                DataAccessResourceFailureException.class,
+                () -> listener.handleOrderCreated("{}")
+        );
     }
 
     private String captureOutput(ThrowingAction action) throws Exception {
