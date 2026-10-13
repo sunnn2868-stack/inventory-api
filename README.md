@@ -83,6 +83,21 @@ mvn test
 
 The PostgreSQL integration test uses Testcontainers and requires a working Docker environment.
 
+## RabbitMQ Failure Recovery and Idempotency Testing
+
+The following behaviors have been verified during local testing:
+
+* **Retry handling:** RabbitMQ listener retries occur when message processing fails. With the configured retry policy, the listener makes up to three attempts before retry recovery is exhausted.
+* **Dead-lettering:** A test message that continued to fail was rejected after retry exhaustion and routed to the configured dead-letter queue.
+* **Message recovery:** The payload for test order `99999` was republished to the `order.created` queue after the temporary failure condition was removed. The Inventory API processed the event successfully.
+* **Duplicate protection:** Publishing the same event again produced the log message `Duplicate event ignored for order ID: 99999`.
+* **Database verification:** PostgreSQL confirmed that `processed_order_events` contained only one record for order ID `99999` after the repeated delivery.
+
+These tests demonstrate basic failure handling, dead-letter recovery, and database-backed protection against duplicate processing records.
+
+**Note:** The recovery test republished the event payload to the main queue. It did not remove the original message from the dead-letter queue. The test verifies reprocessing and idempotency, not automatic DLQ message removal.
+
+
 ## Local Development
 
 1. Install Java 21.
