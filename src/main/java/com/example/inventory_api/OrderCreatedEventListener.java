@@ -19,7 +19,8 @@ public class OrderCreatedEventListener {
     }
 
     @RabbitListener(queues = "order.created")
-    @Transactional public void handleOrderCreated(String message) throws Exception {
+    @Transactional
+    public void handleOrderCreated(String message) throws Exception {
         OrderCreatedEvent event = objectMapper.readValue(message, OrderCreatedEvent.class);
 
         int inserted = jdbcTemplate.update(
