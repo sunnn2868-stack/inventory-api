@@ -8,12 +8,21 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import tools.jackson.databind.ObjectMapper;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayOutputStream;
 
 @Testcontainers
 class ProcessedOrderEventIntegrationTest {
 
     private JdbcTemplate jdbcTemplate;
+
+    private OrderCreatedEventListener listener;
 
     @Container
     static final PostgreSQLContainer<?> postgres =
@@ -44,18 +53,31 @@ class ProcessedOrderEventIntegrationTest {
                     processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
+
+        this.listener = new OrderCreatedEventListener(
+                new ObjectMapper(),
+                jdbcTemplate
+        );
     }
 
     @Test
-    void duplicateOrderIdCreatesOnlyOneRecord() {
-        String sql = """
-                INSERT INTO processed_order_events (order_id, processed_at)
-                VALUES (?, CURRENT_TIMESTAMP)
-                ON CONFLICT (order_id) DO NOTHING
-                """;
+    void duplicateOrderEventIsProcessedOnlyOnce() throws Exception {
+        OrderCreatedEvent event = new OrderCreatedEvent(9002, 404, 5001, 2, "CREATED");
 
-        int firstInsert = jdbcTemplate.update(sql, 9002);
-        int duplicateInsert = jdbcTemplate.update(sql, 9002);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+
+        try (PrintStream capturedOut = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            System.setOut(capturedOut);
+
+            String message = new ObjectMapper().writeValueAsString(event);
+
+            listener.handleOrderCreated(message);
+            listener.handleOrderCreated(message);
+
+        } finally {
+            System.setOut(originalOut);
+        }
 
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM processed_order_events WHERE order_id = ?",
@@ -63,8 +85,19 @@ class ProcessedOrderEventIntegrationTest {
                 9002
         );
 
-        assertEquals(1, firstInsert);
-        assertEquals(0, duplicateInsert);
         assertEquals(1, count);
+
+        String consoleOutput = output.toString(StandardCharsets.UTF_8);
+
+        assertEquals(
+                1,
+                consoleOutput.split("Order event received!", -1).length - 1
+        );
+
+        assertTrue(
+                consoleOutput.contains(
+                        "Duplicate event ignored for order ID: 9002"
+                )
+        );
     }
 }
